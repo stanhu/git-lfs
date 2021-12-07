@@ -12,6 +12,7 @@ import (
 	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/git-lfs/git-lfs/v3/tools/humanize"
 	"github.com/git-lfs/git-lfs/v3/tq"
+	"github.com/rubyist/tracerx"
 	"github.com/spf13/cobra"
 )
 
@@ -97,7 +98,7 @@ func delayedSmudge(gf *lfs.GitFilter, s *git.FilterProcessScanner, to io.Writer,
 // Any errors encountered along the way will be returned immediately if they
 // were non-fatal, otherwise execution will halt and the process will be
 // terminated by using the `commands.Panic()` func.
-func smudge(gf *lfs.GitFilter, to io.Writer, from io.Reader, filename string, skip bool, filter *filepathfilter.Filter) (int64, error) {
+func smudge(gf *lfs.GitFilter, to io.Writer, from io.Reader, filename string, treeish string, skip bool, filter *filepathfilter.Filter) (int64, error) {
 	ptr, pbuf, perr := lfs.DecodeFrom(from)
 	if perr != nil {
 		n, err := tools.Spool(to, pbuf, cfg.TempDir())
@@ -124,7 +125,17 @@ func smudge(gf *lfs.GitFilter, to io.Writer, from io.Reader, filename string, sk
 		download = filter.Allows(filename)
 	}
 
-	n, err := gf.Smudge(to, ptr, filename, download, getTransferManifestOperationRemote("download", cfg.Remote()), cb)
+	remote := cfg.Remote()
+
+	if treeish != "" {
+		newRemote, err := git.FirstRemoteForTreeish(treeish)
+		if err == nil && newRemote != "" {
+			tracerx.Printf("using new remote %s", newRemote)
+			remote = newRemote
+		}
+	}
+
+	n, err := gf.Smudge(to, ptr, filename, download, getTransferManifestOperationRemote("download", remote), cb)
 	if file != nil {
 		file.Close()
 	}
@@ -159,7 +170,7 @@ func smudgeCommand(cmd *cobra.Command, args []string) {
 	filter := filepathfilter.New(cfg.FetchIncludePaths(), cfg.FetchExcludePaths(), filepathfilter.GitAttributes)
 	gitfilter := lfs.NewGitFilter(cfg)
 
-	if n, err := smudge(gitfilter, os.Stdout, os.Stdin, smudgeFilename(args), smudgeSkip, filter); err != nil {
+	if n, err := smudge(gitfilter, os.Stdout, os.Stdin, smudgeFilename(args), "", smudgeSkip, filter); err != nil {
 		if errors.IsNotAPointerError(err) {
 			fmt.Fprintln(os.Stderr, err.Error())
 		} else {

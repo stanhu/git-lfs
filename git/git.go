@@ -1419,3 +1419,68 @@ func ObjectDatabase(osEnv, gitEnv Environment, gitdir, tempdir string) (*gitobj.
 	}
 	return odb, nil
 }
+
+func remotesForTreeish(treeish string) ([]string, error) {
+	outp, err := gitNoLFSSimple("rev-parse", "--symbolic-full-name", treeish, "--remotes")
+	tracerx.Printf("Remotes: %s", outp)
+	if err != nil {
+		return []string{}, fmt.Errorf("Git can't resolve symbolic name for ref: %q", treeish)
+	}
+	if outp == "" {
+		return []string{}, fmt.Errorf("Git can't resolve symbolic name for ref: %q", treeish)
+	}
+
+	lines := strings.Split(outp, "\n")
+	return lines, nil
+}
+
+// remoteForRef will try to determine the remote from the ref name.
+// This will return an empty string if any of the remote names have a slash
+// because slashes introduce ambiguity. Consider two refs:
+//
+// 1. upstream/main
+// 2. upstream/test/main
+//
+// Is the remote "upstream" or "upstream/test"? It could be either, or both.
+// We could use git for-each-ref with %(upstream:remotename) if there were a tracking branch,
+// but this is not guaranteed to exist either.
+func remoteForRef(refname string) string {
+	remotes, err := RemoteList()
+	if err != nil {
+		return ""
+	}
+
+	for _, name := range remotes {
+		if strings.Contains(name, "/") {
+			tracerx.Printf("cannot determine remote for ref %s since remote contains a slash", refname, name)
+			return ""
+		}
+	}
+
+	parts := strings.Split(refname, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	return parts[0]
+}
+
+// FirstRemoteForTreeish remotes the first remote that contains the commit
+// in treeish.
+func FirstRemoteForTreeish(treeish string) (string, error) {
+	remoterefs, err := remotesForTreeish(treeish)
+	if err != nil {
+		return "", err
+	}
+
+	if len(remoterefs) == 0 {
+		return "", fmt.Errorf("No valid remote refs parsed: %q", treeish)
+	}
+
+	refType, name := ParseRefToTypeAndName(remoterefs[0])
+	if refType != RefTypeRemoteBranch {
+		return "", fmt.Errorf("ref %s is not a remote branch", name)
+	}
+
+	return remoteForRef(name), nil
+}

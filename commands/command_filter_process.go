@@ -120,7 +120,7 @@ func filterCommand(cmd *cobra.Command, args []string) {
 					break
 				}
 
-				n, err = smudge(gitfilter, w, from, req.Header["pathname"], skip, filter)
+				n, err = smudge(gitfilter, w, from, req.Header["pathname"], req.Header["treeish"], skip, filter)
 				if err == nil {
 					delete(ptrs, req.Header["pathname"])
 				}
